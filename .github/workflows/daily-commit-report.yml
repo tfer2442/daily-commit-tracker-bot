@@ -26,5 +26,5 @@ jobs:
     - name: Send yesterday's commit report
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        GITHUB_REPOS: ${{ secrets.GITHUB_REPOS }}
+        REPOS: ${{ secrets.REPOS }}
       run: node serverless-bot.js

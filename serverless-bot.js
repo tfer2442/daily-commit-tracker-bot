@@ -5,7 +5,7 @@ const axios = require('axios');
 const CONFIG = {
     DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL, // Discord 웹훅 URL
     // 여러 레포지토리 설정 (쉼표로 구분)
-    GITHUB_REPOS: process.env.GITHUB_REPOS
+    GITHUB_REPOS: process.env.REPOS
 };
 
 // GitHub API를 통해 특정 레포지토리의 어제 커밋 정보 가져오기
