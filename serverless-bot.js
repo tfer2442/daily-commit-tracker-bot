@@ -5,7 +5,6 @@ const axios = require('axios');
 const CONFIG = {
     DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
     GITHUB_REPOS: process.env.REPOS,
-    GITHUB_TOKEN: process.env.GITHUB_TOKEN, // 추가: API rate limit 방지
     TARGET_COMMITS: 3 // 목표 문제 수
 };
 
@@ -36,11 +35,6 @@ async function getDayCommits(owner, repo, targetDate) {
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'GitHub-Actions-Bot'
         };
-        
-        // GitHub 토큰이 있으면 추가
-        if (CONFIG.GITHUB_TOKEN) {
-            headers['Authorization'] = `token ${CONFIG.GITHUB_TOKEN}`;
-        }
         
         const response = await axios.get(
             `https://api.github.com/repos/${owner}/${repo}/commits`,
