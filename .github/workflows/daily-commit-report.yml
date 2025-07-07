@@ -1,0 +1,30 @@
+# .github/workflows/daily-commit-report.yml
+name: Daily Commit Report
+
+on:
+  schedule:
+    # 매일 한국시간 00:05 (UTC 15:05 = KST 00:05)
+    - cron: '5 15 * * *'
+  workflow_dispatch: # 수동 실행 가능
+
+jobs:
+  send-commit-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        
+    - name: Install dependencies
+      run: npm install discord.js axios
+      
+    - name: Send yesterday's commit report
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        GITHUB_REPOS: ${{ secrets.GITHUB_REPOS }}
+      run: node serverless-bot.js
