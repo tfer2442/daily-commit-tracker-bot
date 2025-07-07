@@ -1,11 +1,9 @@
-# .github/workflows/daily-commit-report.yml
-name: Daily Commit Report
+name: Algorithm Problem Tracker
 
 on:
   schedule:
-    # 매일 한국시간 00:05 (UTC 15:05 = KST 00:05)
-    - cron: '5 15 * * *'
-  workflow_dispatch: # 수동 실행 가능
+    - cron: '5 15 * * 2,3,4,5,6'
+  workflow_dispatch:
 
 jobs:
   send-commit-report:
@@ -23,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: npm install discord.js axios
       
-    - name: Send yesterday's commit report
+    - name: Send algorithm problem report
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         REPOS: ${{ secrets.REPOS }}
