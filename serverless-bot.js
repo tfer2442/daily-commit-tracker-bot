@@ -5,45 +5,62 @@ const axios = require('axios');
 const CONFIG = {
     DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
     GITHUB_REPOS: process.env.REPOS,
+    GITHUB_TOKEN: process.env.GITHUB_TOKEN, // 추가: API rate limit 방지
     TARGET_COMMITS: 3 // 목표 문제 수
 };
 
-// 한국시간 기준 날짜 가져오기
-function getKoreaDate(date = new Date()) {
-    const koreaOffset = 9 * 60 * 60 * 1000;
-    return new Date(date.getTime() + koreaOffset);
+// UTC 기준으로 한국 시간 날짜 가져오기 (GitHub Actions 환경용)
+function getKoreaDateFromUTC() {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const koreaTime = new Date(utc + (9 * 60 * 60 * 1000));
+    return koreaTime;
 }
 
 // 특정 날짜의 커밋 정보 가져오기
 async function getDayCommits(owner, repo, targetDate) {
     try {
-        const startOfDay = new Date(targetDate);
-        startOfDay.setHours(0, 0, 0, 0);
+        // 한국 시간 기준 하루의 시작과 끝
+        const year = targetDate.getFullYear();
+        const month = targetDate.getMonth();
+        const date = targetDate.getDate();
         
-        const endOfDay = new Date(targetDate);
-        endOfDay.setHours(23, 59, 59, 999);
+        // UTC로 변환 (한국시간 00:00 = UTC 전날 15:00)
+        const startKST = new Date(year, month, date, 0, 0, 0);
+        const endKST = new Date(year, month, date, 23, 59, 59);
         
-        const koreaOffset = 9 * 60 * 60 * 1000;
-        const since = new Date(startOfDay.getTime() - koreaOffset).toISOString();
-        const until = new Date(endOfDay.getTime() - koreaOffset).toISOString();
+        const startUTC = new Date(startKST.getTime() - (9 * 60 * 60 * 1000));
+        const endUTC = new Date(endKST.getTime() - (9 * 60 * 60 * 1000));
+        
+        const headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'GitHub-Actions-Bot'
+        };
+        
+        // GitHub 토큰이 있으면 추가
+        if (CONFIG.GITHUB_TOKEN) {
+            headers['Authorization'] = `token ${CONFIG.GITHUB_TOKEN}`;
+        }
         
         const response = await axios.get(
             `https://api.github.com/repos/${owner}/${repo}/commits`,
             {
-                headers: {
-                    'Accept': 'application/vnd.github.v3+json',
-                    'User-Agent': 'GitHub-Actions-Bot'
-                },
-                params: { since, until, per_page: 50 }
+                headers,
+                params: { 
+                    since: startUTC.toISOString(),
+                    until: endUTC.toISOString(),
+                    per_page: 50 
+                }
             }
         );
         
         return {
             owner, repo,
-            date: targetDate.toLocaleDateString('ko-KR'),
+            date: `${year}. ${month + 1}. ${date}.`,
             commits: response.data
         };
     } catch (error) {
+        console.error(`Error fetching commits for ${owner}/${repo}:`, error.message);
         return {
             owner, repo,
             date: targetDate.toLocaleDateString('ko-KR'),
@@ -56,15 +73,19 @@ async function getDayCommits(owner, repo, targetDate) {
 // 이번주 평일(월~금) 모든 커밋 가져오기
 async function getWeeklyCommits(owner, repo) {
     const results = [];
-    const koreaToday = getKoreaDate();
+    const koreaToday = getKoreaDateFromUTC();
     
+    // 이번 주 월요일 찾기
     const monday = new Date(koreaToday);
-    monday.setDate(monday.getDate() - monday.getDay() + 1);
+    const day = monday.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // 일요일인 경우 지난주 월요일
+    monday.setDate(monday.getDate() + diff);
     
     for (let i = 0; i < 5; i++) {
         const targetDate = new Date(monday);
         targetDate.setDate(monday.getDate() + i);
         
+        // 미래 날짜는 건너뛰기
         if (targetDate > koreaToday) continue;
         
         const dayResult = await getDayCommits(owner, repo, targetDate);
@@ -76,9 +97,26 @@ async function getWeeklyCommits(owner, repo) {
     return results;
 }
 
+// 특정 날짜의 커밋 정보 가져오기 (토요일 전용)
+async function getSpecificDayCommits(date) {
+    const repoList = CONFIG.GITHUB_REPOS.split(',').map(repo => repo.trim());
+    const results = [];
+    
+    for (const repoString of repoList) {
+        const [owner, repo] = repoString.split('/');
+        if (owner && repo) {
+            const result = await getDayCommits(owner, repo, date);
+            results.push(result);
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+    }
+    
+    return results;
+}
+
 // 어제(평일만) 커밋 정보 가져오기
 async function getYesterdayCommits() {
-    const koreaToday = getKoreaDate();
+    const koreaToday = getKoreaDateFromUTC();
     const yesterday = new Date(koreaToday);
     yesterday.setDate(yesterday.getDate() - 1);
     
@@ -87,18 +125,7 @@ async function getYesterdayCommits() {
         return [];
     }
     
-    const repoList = CONFIG.GITHUB_REPOS.split(',').map(repo => repo.trim());
-    const results = [];
-    
-    for (const repoString of repoList) {
-        const [owner, repo] = repoString.split('/');
-        if (owner && repo) {
-            const result = await getDayCommits(owner, repo, yesterday);
-            results.push(result);
-        }
-    }
-    
-    return results;
+    return await getSpecificDayCommits(yesterday);
 }
 
 // 일일 커밋 리포트 Embed 생성
@@ -140,14 +167,12 @@ function createDailyCommitEmbed(repoData) {
         const shortSha = commit.sha.substring(0, 7);
         const commitUrl = commit.html_url;
         
-        const commitTime = new Date(commit.commit.author.date).toLocaleTimeString('ko-KR', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'Asia/Seoul'
-        });
+        const commitTime = new Date(commit.commit.author.date);
+        const koreaTime = new Date(commitTime.getTime() + (9 * 60 * 60 * 1000));
+        const timeString = `${koreaTime.getHours().toString().padStart(2, '0')}:${koreaTime.getMinutes().toString().padStart(2, '0')}`;
         
         embed.addFields({
-            name: `${commitTime}`,
+            name: `${timeString}`,
             value: `[\`${shortSha}\`](${commitUrl}) ${message}`,
             inline: false
         });
@@ -201,14 +226,21 @@ function createWeeklyCommitEmbed(repoData, weeklyResults) {
 }
 
 // 메인 실행 함수
-// 메인 실행 함수 수정
 async function main() {
     try {
-        const koreaToday = getKoreaDate();
+        const koreaToday = getKoreaDateFromUTC();
         const todayDay = koreaToday.getDay();
+        
+        console.log(`실행 시각 (한국): ${koreaToday.toLocaleString('ko-KR')}`);
+        console.log(`오늘 요일: ${['일', '월', '화', '수', '목', '금', '토'][todayDay]}요일`);
         
         if (todayDay === 0) {
             console.log('일요일은 휴식!');
+            return;
+        }
+        
+        if (!CONFIG.DISCORD_WEBHOOK_URL) {
+            console.error('DISCORD_WEBHOOK_URL이 설정되지 않았습니다.');
             return;
         }
         
@@ -217,17 +249,21 @@ async function main() {
         
         if (todayDay === 6) {
             // 토요일: 금요일 일일 리포트 + 주간 요약
+            console.log('토요일 실행: 금요일 리포트 + 주간 요약');
             
-            // 1. 먼저 금요일 일일 리포트
-            const yesterdayResults = await getYesterdayCommits();
+            // 1. 금요일 날짜 계산
+            const friday = new Date(koreaToday);
+            friday.setDate(friday.getDate() - 1); // 어제 = 금요일
             
-            for (const repoData of yesterdayResults) {
+            const fridayResults = await getSpecificDayCommits(friday);
+            
+            for (const repoData of fridayResults) {
                 const embed = createDailyCommitEmbed(repoData);
                 await webhookClient.send({ embeds: [embed] });
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
             
-            // 2. 그 다음 주간 요약
+            // 2. 주간 요약
             for (const repoString of repoList) {
                 const [owner, repo] = repoString.split('/');
                 if (owner && repo) {
@@ -240,9 +276,11 @@ async function main() {
             }
         } else {
             // 화~금: 일일 리포트만
+            console.log('평일 실행: 어제 리포트');
             const yesterdayResults = await getYesterdayCommits();
             
             if (yesterdayResults.length === 0) {
+                console.log('체크할 커밋이 없습니다.');
                 return;
             }
             
@@ -253,8 +291,24 @@ async function main() {
             }
         }
         
+        console.log('알림 전송 완료!');
+        
     } catch (error) {
         console.error('오류 발생:', error);
+        // Discord 웹훅이 설정되어 있다면 오류 알림도 전송
+        if (CONFIG.DISCORD_WEBHOOK_URL) {
+            try {
+                const webhookClient = new WebhookClient({ url: CONFIG.DISCORD_WEBHOOK_URL });
+                const errorEmbed = new EmbedBuilder()
+                    .setTitle('❌ 알고리즘 봇 오류')
+                    .setColor(0xFF0000)
+                    .setDescription(`\`\`\`${error.message}\`\`\``)
+                    .setTimestamp();
+                await webhookClient.send({ embeds: [errorEmbed] });
+            } catch (webhookError) {
+                console.error('오류 알림 전송 실패:', webhookError);
+            }
+        }
     }
 }
 
