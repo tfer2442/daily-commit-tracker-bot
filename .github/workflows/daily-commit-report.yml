@@ -2,7 +2,7 @@ name: Algorithm Problem Tracker
 
 on:
   schedule:
-    - cron: '5 15 * * 2,3,4,5,6'
+    - cron: '5 15 * * 1,2,3,4,5'  # UTC 월~금 15:05 = 한국 화~토 00:05
   workflow_dispatch:
 
 jobs:
