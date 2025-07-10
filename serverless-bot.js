@@ -16,6 +16,12 @@ function getKoreaDateFromUTC() {
     return koreaTime;
 }
 
+// 커밋이 문제 풀이 커밋인지 확인하는 함수 (추가됨)
+function isValidProblemSolvingCommit(commitMessage) {
+    // Delete로 시작하는 커밋은 제외
+    return !commitMessage.toLowerCase().startsWith('delete');
+}
+
 // 특정 날짜의 커밋 정보 가져오기
 async function getDayCommits(owner, repo, targetDate) {
     try {
@@ -48,10 +54,15 @@ async function getDayCommits(owner, repo, targetDate) {
             }
         );
         
+        // Delete로 시작하는 커밋들을 필터링 (수정됨)
+        const filteredCommits = response.data.filter(commit => 
+            isValidProblemSolvingCommit(commit.commit.message)
+        );
+        
         return {
             owner, repo,
             date: `${year}. ${month + 1}. ${date}.`,
-            commits: response.data
+            commits: filteredCommits // 필터링된 커밋들만 반환
         };
     } catch (error) {
         console.error(`Error fetching commits for ${owner}/${repo}:`, error.message);
@@ -134,7 +145,7 @@ function createDailyCommitEmbed(repoData) {
         .setTimestamp()
         .setURL(`https://github.com/${owner}/${repo}`)
         .setFooter({ 
-            text: `총 ${solvedCount}문제 해결`,
+            text: `총 ${solvedCount}문제 해결`, // 수정됨
             iconURL: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png'
         });
     
@@ -196,7 +207,7 @@ function createWeeklyCommitEmbed(repoData, weeklyResults) {
         .setColor(successDays === totalDays ? 0x00D084 : 0xFFB84D)
         .setTimestamp()
         .setURL(`https://github.com/${owner}/${repo}`)
-        .setDescription(`이번주 **총 ${totalSolved}문제**를 해결했습니다! 🎉`)
+        .setDescription(`이번주 **총 ${totalSolved}문제**를 해결했습니다! 🎉\n`) // 수정됨
         .setFooter({ 
             text: `목표 달성: ${successDays}/${totalDays}일`,
             iconURL: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png'
