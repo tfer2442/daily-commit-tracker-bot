@@ -16,10 +16,44 @@ function getKoreaDateFromUTC() {
     return koreaTime;
 }
 
-// 커밋이 문제 풀이 커밋인지 확인하는 함수 (추가됨)
+// 커밋이 문제 풀이 커밋인지 확인하는 함수
 function isValidProblemSolvingCommit(commitMessage) {
     // Delete로 시작하는 커밋은 제외
     return !commitMessage.toLowerCase().startsWith('delete');
+}
+
+// 커밋 메시지에서 문제 제목 추출하는 함수
+function extractProblemTitle(commitMessage) {
+    // BaekjoonHub로 끝나는 경우 처리
+    if (commitMessage.includes('-BaekjoonHub')) {
+        // 첫 번째 콤마까지의 내용을 문제 식별자로 사용
+        const parts = commitMessage.split(',');
+        if (parts.length > 0) {
+            return parts[0].trim();
+        }
+    }
+    // BaekjoonHub가 없는 경우 전체 메시지를 사용
+    return commitMessage.split('\n')[0].trim();
+}
+
+// 중복 커밋 제거 함수 (최신 커밋만 유지)
+function removeDuplicateCommits(commits) {
+    const uniqueProblems = new Map();
+    
+    // 커밋을 역순으로 순회 (최신 커밋부터)
+    for (const commit of commits) {
+        const problemTitle = extractProblemTitle(commit.commit.message);
+        
+        // 같은 문제가 없으면 추가
+        if (!uniqueProblems.has(problemTitle)) {
+            uniqueProblems.set(problemTitle, commit);
+        }
+    }
+    
+    // Map의 값들을 배열로 변환하고 날짜순으로 정렬
+    return Array.from(uniqueProblems.values()).sort((a, b) => 
+        new Date(b.commit.author.date) - new Date(a.commit.author.date)
+    );
 }
 
 // 특정 날짜의 커밋 정보 가져오기
@@ -54,15 +88,18 @@ async function getDayCommits(owner, repo, targetDate) {
             }
         );
         
-        // Delete로 시작하는 커밋들을 필터링 (수정됨)
-        const filteredCommits = response.data.filter(commit => 
+        // Delete로 시작하는 커밋들을 필터링
+        const validCommits = response.data.filter(commit => 
             isValidProblemSolvingCommit(commit.commit.message)
         );
+        
+        // 중복 제거 (같은 문제는 최신 커밋만 유지)
+        const uniqueCommits = removeDuplicateCommits(validCommits);
         
         return {
             owner, repo,
             date: `${year}. ${month + 1}. ${date}.`,
-            commits: filteredCommits // 필터링된 커밋들만 반환
+            commits: uniqueCommits
         };
     } catch (error) {
         console.error(`Error fetching commits for ${owner}/${repo}:`, error.message);
@@ -145,7 +182,7 @@ function createDailyCommitEmbed(repoData) {
         .setTimestamp()
         .setURL(`https://github.com/${owner}/${repo}`)
         .setFooter({ 
-            text: `총 ${solvedCount}문제 해결`, // 수정됨
+            text: `총 ${solvedCount}문제 해결`,
             iconURL: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png'
         });
     
@@ -207,7 +244,7 @@ function createWeeklyCommitEmbed(repoData, weeklyResults) {
         .setColor(successDays === totalDays ? 0x00D084 : 0xFFB84D)
         .setTimestamp()
         .setURL(`https://github.com/${owner}/${repo}`)
-        .setDescription(`이번주 **총 ${totalSolved}문제**를 해결했습니다! 🎉\n`) // 수정됨
+        .setDescription(`이번주 **총 ${totalSolved}문제**를 해결했습니다! 🎉\n`)
         .setFooter({ 
             text: `목표 달성: ${successDays}/${totalDays}일`,
             iconURL: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png'
